@@ -1,0 +1,198 @@
+/* Styles pour le correcteur orthographique */
+
+.correction-marker {
+    position: relative;
+    display: inline-block;
+}
+
+.error-underline {
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: repeating-linear-gradient(
+        to right,
+        #ff4444,
+        #ff4444 2px,
+        transparent 2px,
+        transparent 4px
+    );
+    cursor: pointer;
+    z-index: 1;
+}
+
+.error-underline:hover {
+    background: repeating-linear-gradient(
+        to right,
+        #ff6666,
+        #ff6666 2px,
+        transparent 2px,
+        transparent 4px
+    );
+}
+
+.correction-popup {
+    position: absolute;
+    top: 25px;
+    left: 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 10000;
+    min-width: 200px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.correction-popup::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 20px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 8px solid white;
+}
+
+.correction-suggestion {
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.correction-suggestion strong {
+    color: #2196F3;
+}
+
+.correction-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.correction-actions button {
+    padding: 5px 10px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.accept-correction {
+    background: #4CAF50;
+    color: white;
+}
+
+.accept-correction:hover {
+    background: #45a049;
+}
+
+.ignore-correction {
+    background: #f44336;
+    color: white;
+}
+
+.ignore-correction:hover {
+    background: #da190b;
+}
+
+/* Toggle du correcteur */
+#correction-toggle {
+    position: fixed !important;
+    bottom: 20px !important;
+    right: 20px !important;
+    background: #4CAF50 !important;
+    color: white !important;
+    padding: 10px 15px !important;
+    border-radius: 25px !important;
+    z-index: 10001 !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    font-size: 12px !important;
+    cursor: pointer !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important;
+    transition: all 0.3s ease !important;
+    user-select: none !important;
+}
+
+#correction-toggle:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+}
+
+.toggle-content {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+
+#toggle-correction {
+    background: rgba(255,255,255,0.2) !important;
+    border: none !important;
+    color: white !important;
+    padding: 3px 8px !important;
+    border-radius: 12px !important;
+    font-size: 10px !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
+}
+
+/* Animations */
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+.correction-marker.processing .error-underline {
+    animation: pulse 1s infinite;
+}
+
+/* Styles pour différents types d'erreurs */
+.error-grammar .error-underline {
+    background: repeating-linear-gradient(
+        to right,
+        #2196F3,
+        #2196F3 2px,
+        transparent 2px,
+        transparent 4px
+    );
+}
+
+.error-spelling .error-underline {
+    background: repeating-linear-gradient(
+        to right,
+        #ff4444,
+        #ff4444 2px,
+        transparent 2px,
+        transparent 4px
+    );
+}
+
+.error-style .error-underline {
+    background: repeating-linear-gradient(
+        to right,
+        #FF9800,
+        #FF9800 2px,
+        transparent 2px,
+        transparent 4px
+    );
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .correction-popup {
+        min-width: 150px;
+        font-size: 12px;
+    }
+
+    #correction-toggle {
+        bottom: 10px !important;
+        right: 10px !important;
+        padding: 8px 12px !important;
+    }
+}
