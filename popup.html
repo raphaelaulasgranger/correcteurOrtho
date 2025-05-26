@@ -196,6 +196,247 @@
             <select id="modelSelect">
                 <option value="camembert">CamemBERT (Recommandé)</option>
                 <option value="flaubert">FlauBERT</option>
+                <option value="barthez">BARThez</option>
+                <option value="gpt2_french">GPT-2 Français</option>
+            </select>
+            <div class="model-info" id="modelInfo">
+                CamemBERT : Modèle BERT français optimisé (le plus fiable)
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="hfToken">Token Hugging Face :</label>
+            <input type="password" id="hfToken" placeholder="hf_xxxxxxxxxxxxxxxxxxxx">
+            <div class="help-text">
+                Obtenez votre token gratuit sur <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co</a>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="confidenceSlider">Seuil de confiance : <span id="confidenceValue">70%</span></label>
+            <input type="range" id="confidenceSlider" min="50" max="95" value="70">
+            <div class="help-text">
+                Plus le seuil est élevé, moins il y aura de suggestions mais elles seront plus précises
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Actions</h3>
+        <button class="button" id="saveSettings">💾 Sauvegarder les paramètres</button>
+        <button class="button" id="testConnection">🔍 Tester la connexion</button>
+        <button class="button secondary" id="resetSettings">🔄 Réinitialiser</button>
+
+        <div id="statusMessage" class="status" style="display: none;"></div>
+    </div>
+
+    <div class="section">
+        <h3>Statistiques d'utilisation</h3>
+        <div class="stats">
+            <div>
+                <strong id="correctionsCount">0</strong><br>
+                <small>Corrections</small>
+            </div>
+            <div>
+                <strong id="acceptedCount">0</strong><br>
+                <small>Acceptées</small>
+            </div>
+            <div>
+                <strong id="ignoredCount">0</strong><br>
+                <small>Ignorées</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Raccourcis clavier</h3>
+        <div style="font-size: 11px; color: #666;">
+            <div><strong>Ctrl+Shift+C</strong> : Activer/Désactiver</div>
+            <div><strong>Ctrl+Shift+A</strong> : Accepter suggestion</div>
+            <div><strong>Escape</strong> : Fermer les popups</div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>8;
+            color: #2e7d32;
+            border: 1px solid #4caf50;
+        }
+
+        .status.error {
+            background: #ffeaea;
+            color: #c62828;
+            border: 1px solid #f44336;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #666;
+        }
+
+        .help-text {
+            font-size: 10px;
+            color: #888;
+            margin-top: 5px;
+            line-height: 1.3;
+        }
+
+        .model-info {
+            font-size: 10px;
+            color: #666;
+            padding: 5px;
+            background: #f0f0f0;
+            border-radius: 3px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧠 Correcteur IA</h1>
+        <p>Correction orthographique en temps réel</p>
+    </div>
+
+    <div class="section">
+        <div class="toggle-switch">
+            <h3>Activer le correcteur</h3>
+            <div class="switch" id="enableToggle">
+                <div class="switch-thumb"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Configuration du modèle</h3>
+
+        <div class="form-group">
+            <label for="modelSelect">Modèle IA :</label>
+            <select id="modelSelect">
+                <option value="camembert">CamemBERT (Recommandé)</option>
+                <option value="flaubert">FlauBERT</option>
+                <option value="opus">OPUS-MT français</option>
+            </select>
+            <div class="model-info" id="modelInfo">
+                CamemBERT : Modèle BERT français optimisé pour la langue française
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="hfToken">Token Hugging Face :</label>
+            <input type="password" id="hfToken" placeholder="hf_xxxxxxxxxxxxxxxxxxxx">
+            <div class="help-text">
+                Obtenez votre token gratuit sur <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co</a>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="confidenceSlider">Seuil de confiance : <span id="confidenceValue">70%</span></label>
+            <input type="range" id="confidenceSlider" min="50" max="95" value="70">
+            <div class="help-text">
+                Plus le seuil est élevé, moins il y aura de suggestions mais elles seront plus précises
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Actions</h3>
+        <button class="button" id="saveSettings">💾 Sauvegarder les paramètres</button>
+        <button class="button" id="testConnection">🔍 Tester la connexion</button>
+        <button class="button secondary" id="resetSettings">🔄 Réinitialiser</button>
+
+        <div id="statusMessage" class="status" style="display: none;"></div>
+    </div>
+
+    <div class="section">
+        <h3>Statistiques d'utilisation</h3>
+        <div class="stats">
+            <div>
+                <strong id="correctionsCount">0</strong><br>
+                <small>Corrections</small>
+            </div>
+            <div>
+                <strong id="acceptedCount">0</strong><br>
+                <small>Acceptées</small>
+            </div>
+            <div>
+                <strong id="ignoredCount">0</strong><br>
+                <small>Ignorées</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Raccourcis clavier</h3>
+        <div style="font-size: 11px; color: #666;">
+            <div><strong>Ctrl+Shift+C</strong> : Activer/Désactiver</div>
+            <div><strong>Ctrl+Shift+A</strong> : Accepter suggestion</div>
+            <div><strong>Escape</strong> : Fermer les popups</div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>8;
+            color: #2e7d32;
+            border: 1px solid #4caf50;
+        }
+
+        .status.error {
+            background: #ffeaea;
+            color: #c62828;
+            border: 1px solid #f44336;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #666;
+        }
+
+        .help-text {
+            font-size: 10px;
+            color: #888;
+            margin-top: 5px;
+            line-height: 1.3;
+        }
+
+        .model-info {
+            font-size: 10px;
+            color: #666;
+            padding: 5px;
+            background: #f0f0f0;
+            border-radius: 3px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧠 Correcteur IA</h1>
+        <p>Correction orthographique en temps réel</p>
+    </div>
+
+    <div class="section">
+        <div class="toggle-switch">
+            <h3>Activer le correcteur</h3>
+            <div class="switch" id="enableToggle">
+                <div class="switch-thumb"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Configuration du modèle</h3>
+
+        <div class="form-group">
+            <label for="modelSelect">Modèle IA :</label>
+            <select id="modelSelect">
+                <option value="camembert">CamemBERT (Recommandé)</option>
+                <option value="flaubert">FlauBERT</option>
                 <option value="opus">OPUS-MT français</option>
             </select>
             <div class="model-info" id="modelInfo">

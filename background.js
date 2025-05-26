@@ -1,7 +1,7 @@
 // Service Worker pour le module Chrome de correction orthographique
 
-// Initialisation lors de l'installation
-chrome.runtime.onInstalled.addListener((details) => {
+// Installation et initialisation
+chrome.runtime.onInstalled.addListener(() => {
     console.log('Correcteur IA Français installé');
 
     // Initialiser les paramètres par défaut
@@ -11,100 +11,62 @@ chrome.runtime.onInstalled.addListener((details) => {
         confidenceThreshold: 0.7,
         maxSuggestions: 3,
         hfToken: ''
-    }).then(() => {
-        console.log('Paramètres par défaut initialisés');
-    }).catch((error) => {
-        console.error('Erreur lors de l\'initialisation:', error);
     });
 });
 
-// Gestion des messages entre les scripts
+// Gestion des messages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('Message reçu:', request.action);
 
-    switch (request.action) {
-        case 'getCorrections':
-            handleCorrectionRequest(request.text)
-            .then(corrections => {
-                sendResponse({ success: true, corrections });
-            })
-            .catch(error => {
-                console.error('Erreur correction:', error);
-                sendResponse({ success: false, error: error.message });
-            });
-            return true; // Indique une réponse asynchrone
+    if (request.action === 'getCorrections') {
+        handleCorrections(request.text, sendResponse);
+        return true; // Réponse asynchrone
+    }
 
-        case 'updateSettings':
-            chrome.storage.sync.set(request.settings)
-            .then(() => {
-                sendResponse({ success: true });
-            })
-            .catch(error => {
-                sendResponse({ success: false, error: error.message });
-            });
-            return true;
+    if (request.action === 'updateSettings') {
+        chrome.storage.sync.set(request.settings, () => {
+            sendResponse({ success: true });
+        });
+        return true;
+    }
 
-        case 'getSettings':
-            chrome.storage.sync.get(null)
-            .then(settings => {
-                sendResponse({ success: true, settings });
-            })
-            .catch(error => {
-                sendResponse({ success: false, error: error.message });
-            });
-            return true;
-
-        default:
-            sendResponse({ success: false, error: 'Action non reconnue' });
-            return false;
+    if (request.action === 'getSettings') {
+        chrome.storage.sync.get(null, (settings) => {
+            sendResponse({ success: true, settings });
+        });
+        return true;
     }
 });
 
-// Fonction principale de correction via API
-async function handleCorrectionRequest(text) {
+// Fonction de correction
+async function handleCorrections(text, sendResponse) {
     try {
-        const settings = await getStoredSettings();
+        // Récupérer les paramètres
+        const settings = await new Promise(resolve => {
+            chrome.storage.sync.get(null, resolve);
+        });
 
         if (!settings.hfToken || settings.hfToken === '') {
-            throw new Error('Token Hugging Face requis');
+            sendResponse({
+                success: false,
+                error: 'Token Hugging Face requis. Configurez-le dans les options.'
+            });
+            return;
         }
 
-        const corrections = await getCorrectionsFromAPI(text, settings);
-        return corrections;
-    } catch (error) {
-        console.error('Erreur lors de la correction:', error);
-        throw error;
-    }
-}
-
-// Récupération des paramètres stockés
-async function getStoredSettings() {
-    try {
-        const settings = await chrome.storage.sync.get(null);
-        return {
-            correctorEnabled: settings.correctorEnabled ?? true,
-            correctionModel: settings.correctionModel ?? 'camembert',
-            hfToken: settings.hfToken ?? '',
-            confidenceThreshold: settings.confidenceThreshold ?? 0.7,
-            maxSuggestions: settings.maxSuggestions ?? 3
+        // URLs CORRIGÉES des modèles
+        const modelEndpoints = {
+            camembert: 'https://api-inference.huggingface.co/models/camembert-base',
+            flaubert: 'https://api-inference.huggingface.co/models/flaubert/flaubert_base_cased',
+            barthez: 'https://api-inference.huggingface.co/models/moussaKam/barthez',
+            gpt2_french: 'https://api-inference.huggingface.co/models/gilf/french-gpt-2'
         };
-    } catch (error) {
-        console.error('Erreur récupération paramètres:', error);
-        throw error;
-    }
-}
 
-// API de correction avec différents modèles
-async function getCorrectionsFromAPI(text, settings) {
-    const modelEndpoints = {
-        camembert: 'https://api-inference.huggingface.co/models/camembert/camembert-base',
-        flaubert: 'https://api-inference.huggingface.co/models/flaubert/flaubert_base_cased',
-        opus: 'https://api-inference.huggingface.co/models/Helsinki-NLP/opus-mt-fr-fr'
-    };
+        const apiUrl = modelEndpoints[settings.correctionModel] || modelEndpoints.camembert;
 
-    const apiUrl = modelEndpoints[settings.correctionModel] || modelEndpoints.camembert;
+        console.log('Appel API vers:', apiUrl);
 
-    try {
+        // Appel API
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
@@ -115,126 +77,92 @@ async function getCorrectionsFromAPI(text, settings) {
                 inputs: text,
                 options: {
                     wait_for_model: true,
-                    use_cache: true
+                    use_cache: false
                 }
             })
         });
 
+        console.log('Réponse API status:', response.status);
+
         if (!response.ok) {
+            let errorMessage = `Erreur API: ${response.status}`;
+
             if (response.status === 401) {
-                throw new Error('Token Hugging Face invalide');
+                errorMessage = 'Token Hugging Face invalide ou expiré';
+            } else if (response.status === 404) {
+                errorMessage = 'Modèle non trouvé. Essayez un autre modèle.';
             } else if (response.status === 503) {
-                throw new Error('Modèle en cours de chargement, veuillez réessayer');
-            } else {
-                throw new Error(`Erreur API: ${response.status} - ${response.statusText}`);
+                errorMessage = 'Modèle en cours de chargement, réessayez dans quelques secondes';
             }
+
+            sendResponse({ success: false, error: errorMessage });
+            return;
         }
 
         const result = await response.json();
-        return parseModelResponse(result, text, settings);
+        console.log('Résultat API:', result);
+
+        const corrections = parseCorrections(result, text, settings);
+
+        sendResponse({ success: true, corrections });
 
     } catch (error) {
-        if (error.name === 'TypeError') {
-            throw new Error('Erreur de connexion réseau');
-        }
-        throw error;
+        console.error('Erreur lors de la correction:', error);
+        sendResponse({ success: false, error: error.message });
     }
 }
 
-// Parser la réponse selon le type de modèle
-function parseModelResponse(result, originalText, settings) {
-    console.log('Réponse du modèle:', result);
-
-    try {
-        // Gestion des différents formats de réponse
-        if (Array.isArray(result) && result.length > 0) {
-            return extractCorrections(result, originalText, settings.confidenceThreshold);
-        } else if (result && typeof result === 'object') {
-            // Certains modèles retournent un objet avec generated_text
-            if (result.generated_text) {
-                return compareTexts(originalText, result.generated_text, settings.confidenceThreshold);
-            }
-        }
-
-        return [];
-    } catch (error) {
-        console.error('Erreur parsing réponse:', error);
-        return [];
-    }
-}
-
-// Extraction des corrections à partir de la réponse du modèle
-function extractCorrections(modelOutput, originalText, threshold = 0.7) {
+// Parser les corrections
+function parseCorrections(result, originalText, settings) {
     const corrections = [];
 
     try {
-        modelOutput.forEach((prediction, index) => {
-            if (prediction.score && prediction.score >= threshold) {
+        if (Array.isArray(result) && result.length > 0) {
+            // Pour les modèles de type fill-mask
+            result.forEach((prediction, index) => {
+                if (prediction.score >= (settings.confidenceThreshold || 0.7)) {
+                    corrections.push({
+                        original: originalText,
+                        suggestion: prediction.token_str || prediction.sequence,
+                        confidence: prediction.score,
+                        type: 'spelling',
+                        position: { start: 0, end: originalText.length }
+                    });
+                }
+            });
+        } else if (result && result.generated_text) {
+            // Pour les modèles génératifs
+            const correctedText = result.generated_text;
+            if (correctedText !== originalText) {
                 corrections.push({
                     original: originalText,
-                    suggestion: prediction.token_str || prediction.label || prediction.word,
-                    confidence: prediction.score,
-                    type: 'spelling',
+                    suggestion: correctedText,
+                    confidence: 0.8,
+                    type: 'correction',
                     position: { start: 0, end: originalText.length }
                 });
             }
-        });
+        } else if (result && result[0] && result[0].generated_text) {
+            // Format alternatif
+            const correctedText = result[0].generated_text;
+            if (correctedText !== originalText) {
+                corrections.push({
+                    original: originalText,
+                    suggestion: correctedText,
+                    confidence: 0.8,
+                    type: 'correction',
+                    position: { start: 0, end: originalText.length }
+                });
+            }
+        }
     } catch (error) {
-        console.error('Erreur extraction corrections:', error);
+        console.error('Erreur parsing corrections:', error);
     }
 
-    return corrections.slice(0, 3); // Limiter à 3 suggestions
+    return corrections.slice(0, settings.maxSuggestions || 3);
 }
 
-// Comparaison de textes pour détecter les corrections
-function compareTexts(original, corrected, threshold = 0.7) {
-    const corrections = [];
-
-    if (original !== corrected && corrected) {
-        corrections.push({
-            original: original,
-            suggestion: corrected,
-            confidence: threshold,
-            type: 'correction',
-            position: { start: 0, end: original.length }
-        });
-    }
-
-    return corrections;
-}
-
-// Gestion des erreurs de démarrage
+// Gestion du démarrage
 chrome.runtime.onStartup.addListener(() => {
     console.log('Service Worker démarré');
-
-    // Vérifier et initialiser les paramètres si nécessaire
-    chrome.storage.sync.get(['correctorEnabled']).then((result) => {
-        if (result.correctorEnabled === undefined) {
-            chrome.storage.sync.set({ correctorEnabled: true });
-        }
-    }).catch((error) => {
-        console.error('Erreur au démarrage:', error);
-    });
-});
-
-// Nettoyage périodique du cache (optionnel)
-chrome.runtime.onInstalled.addListener(() => {
-    chrome.alarms.create('clearCache', { periodInMinutes: 60 });
-});
-
-chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'clearCache') {
-        chrome.storage.local.clear().then(() => {
-            console.log('Cache nettoyé');
-        });
-    }
-});
-
-// Gestion des erreurs globales
-self.addEventListener('error', (event) => {
-    console.error('Erreur Service Worker:', event.error);
-});
-
-self.addEventListener('unhandledrejection', (event) => {
-    console.error('Promesse rejetée:', event.reason);
 });

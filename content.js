@@ -1,283 +1,334 @@
 // Configuration de l'API Hugging Face
-const HF_API_URL = 'https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium';
-const HF_TOKEN = 'YOUR_HUGGING_FACE_TOKEN'; // À remplacer par votre token
+const HF_TOKEN = 'YOUR_HUGGING_FACE_TOKEN'; // Remplacé par le token de l'utilisateur
 
-class CorrecteurIA {
-    constructor() {
-        this.isEnabled = true;
-        this.debounceTimer = null;
-        this.currentElement = null;
-        this.corrections = new Map();
-        this.init();
-    }
+// Vérifier si le correcteur est déjà initialisé pour éviter la duplication
+if (window.correcteurIAInitialized) {
+    console.log('Correcteur IA déjà initialisé, arrêt.');
+} else {
+    window.correcteurIAInitialized = true;
 
-    init() {
-        this.attachEventListeners();
-        this.createCorrectionPopup();
-        this.loadSettings();
-    }
+    class CorrecteurIA {
+        constructor() {
+            this.isEnabled = true;
+            this.debounceTimer = null;
+            this.currentElement = null;
+            this.corrections = new Map();
+            this.settings = {};
+            this.initialized = false;
+            this.init();
+        }
 
-    attachEventListeners() {
-        // Écouter les événements de saisie sur tous les champs de texte
-        document.addEventListener('input', (e) => {
-            if (this.isTextInput(e.target) && this.isEnabled) {
-                this.handleInput(e);
+        async init() {
+            if (this.initialized) return;
+
+            console.log('Initialisation du Correcteur IA');
+            await this.loadSettings();
+            this.attachEventListeners();
+            this.createCorrectionToggle();
+            this.initialized = true;
+        }
+
+        async loadSettings() {
+            return new Promise((resolve) => {
+                chrome.storage.sync.get(null, (result) => {
+                    this.settings = {
+                        correctorEnabled: result.correctorEnabled ?? true,
+                        correctionModel: result.correctionModel ?? 'camembert',
+                        hfToken: result.hfToken ?? '',
+                        confidenceThreshold: result.confidenceThreshold ?? 0.7,
+                        maxSuggestions: result.maxSuggestions ?? 3
+                    };
+                    this.isEnabled = this.settings.correctorEnabled;
+                    console.log('Paramètres chargés:', this.settings);
+                    resolve();
+                });
+            });
+        }
+
+        attachEventListeners() {
+            // Écouter les événements de saisie sur tous les champs de texte
+            document.addEventListener('input', (e) => {
+                if (this.isTextInput(e.target) && this.isEnabled && this.settings.hfToken) {
+                    this.handleInput(e);
+                }
+            }, { passive: true });
+
+            // Écouter les clics pour fermer les popups
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.correction-popup')) {
+                    this.hideAllPopups();
+                }
+            }, { passive: true });
+
+            // Écouter les changements de focus
+            document.addEventListener('focusin', (e) => {
+                if (this.isTextInput(e.target)) {
+                    this.currentElement = e.target;
+                }
+            }, { passive: true });
+
+            // Écouter les mises à jour de paramètres
+            chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+                if (message.action === 'settingsUpdated') {
+                    this.settings = message.settings;
+                    this.isEnabled = this.settings.correctorEnabled;
+                    console.log('Paramètres mis à jour:', this.settings);
+                }
+            });
+
+            // Raccourcis clavier
+            document.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+                    e.preventDefault();
+                    this.toggleCorrector();
+                }
+                if (e.key === 'Escape') {
+                    this.hideAllPopups();
+                }
+            });
+        }
+
+        isTextInput(element) {
+            const textInputTypes = ['text', 'email', 'password', 'search', 'url', 'tel'];
+            return (
+                element.tagName === 'TEXTAREA' ||
+                (element.tagName === 'INPUT' && textInputTypes.includes(element.type)) ||
+                element.contentEditable === 'true' ||
+                element.getAttribute('role') === 'textbox'
+            );
+        }
+
+        handleInput(event) {
+            clearTimeout(this.debounceTimer);
+
+            this.debounceTimer = setTimeout(() => {
+                this.analyzeText(event.target);
+            }, 1000); // Augmenté à 1 seconde pour réduire les appels API
+        }
+
+        async analyzeText(element) {
+            const text = this.getElementText(element);
+
+            if (text.length < 15 || !this.settings.hfToken) return; // Texte minimum plus long
+
+            try {
+                console.log('Analyse du texte:', text.substring(0, 50) + '...');
+
+                const response = await chrome.runtime.sendMessage({
+                    action: 'getCorrections',
+                    text: text
+                });
+
+                if (response && response.success && response.corrections.length > 0) {
+                    console.log('Corrections reçues:', response.corrections);
+                    this.displayCorrections(element, response.corrections);
+                } else if (response && !response.success) {
+                    console.error('Erreur correction:', response.error);
+                }
+            } catch (error) {
+                console.error('Erreur lors de l\'analyse:', error);
             }
-        });
+        }
 
-        // Écouter les clics pour fermer les popups
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('.correction-popup')) {
+        displayCorrections(element, corrections) {
+            // Supprimer les anciens marqueurs pour cet élément
+            this.clearCorrectionsForElement(element);
+
+            corrections.forEach((correction, index) => {
+                this.createCorrectionMarker(element, correction, index);
+            });
+        }
+
+        createCorrectionMarker(element, correction, index) {
+            const rect = element.getBoundingClientRect();
+            const marker = document.createElement('div');
+            marker.className = 'correction-marker';
+            marker.dataset.elementId = this.getElementId(element);
+
+            marker.innerHTML = `
+                <div class="error-underline" title="Cliquez pour voir la suggestion"></div>
+                <div class="correction-popup" style="display: none;">
+                    <div class="correction-suggestion">
+                        <strong>Texte original:</strong> ${correction.original}<br>
+                        <strong>Suggestion:</strong> ${correction.suggestion}<br>
+                        <small>Confiance: ${Math.round(correction.confidence * 100)}%</small>
+                    </div>
+                    <div class="correction-actions">
+                        <button class="accept-correction" data-original="${correction.original}" data-suggestion="${correction.suggestion}">
+                            ✓ Accepter
+                        </button>
+                        <button class="ignore-correction">
+                            ✗ Ignorer
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            // Positionner le marqueur
+            marker.style.position = 'absolute';
+            marker.style.left = `${rect.left + window.scrollX + (index * 20)}px`;
+            marker.style.top = `${rect.bottom + window.scrollY + 2}px`;
+            marker.style.zIndex = '10000';
+
+            document.body.appendChild(marker);
+
+            // Ajouter les événements
+            const underline = marker.querySelector('.error-underline');
+            const acceptBtn = marker.querySelector('.accept-correction');
+            const ignoreBtn = marker.querySelector('.ignore-correction');
+
+            underline.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showCorrectionPopup(marker);
+            });
+
+            acceptBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.applyCorrection(element, e.target.dataset.original, e.target.dataset.suggestion);
+                marker.remove();
+            });
+
+            ignoreBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                marker.remove();
+            });
+        }
+
+        getElementId(element) {
+            if (element.id) return element.id;
+            if (element.name) return element.name;
+            return Date.now() + Math.random();
+        }
+
+        clearCorrectionsForElement(element) {
+            const elementId = this.getElementId(element);
+            document.querySelectorAll(`.correction-marker[data-element-id="${elementId}"]`).forEach(marker => {
+                marker.remove();
+            });
+        }
+
+        showCorrectionPopup(marker) {
+            this.hideAllPopups();
+            const popup = marker.querySelector('.correction-popup');
+            popup.style.display = 'block';
+        }
+
+        hideAllPopups() {
+            document.querySelectorAll('.correction-popup').forEach(popup => {
+                popup.style.display = 'none';
+            });
+        }
+
+        applyCorrection(element, original, suggestion) {
+            const text = this.getElementText(element);
+            const correctedText = text.replace(original, suggestion);
+            this.setElementText(element, correctedText);
+
+            // Mettre à jour les statistiques
+            this.updateStats('accepted');
+        }
+
+        getElementText(element) {
+            if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+                return element.value;
+            } else if (element.contentEditable === 'true') {
+                return element.textContent || element.innerText;
+            }
+            return '';
+        }
+
+        setElementText(element, text) {
+            if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+                element.value = text;
+            } else if (element.contentEditable === 'true') {
+                element.textContent = text;
+            }
+
+            // Déclencher l'événement input pour les frameworks JS
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        toggleCorrector() {
+            this.isEnabled = !this.isEnabled;
+            const toggle = document.getElementById('correction-toggle');
+            if (toggle) {
+                const button = toggle.querySelector('#toggle-correction');
+                button.textContent = this.isEnabled ? 'ON' : 'OFF';
+                toggle.style.background = this.isEnabled ? '#4CAF50' : '#f44336';
+            }
+
+            // Sauvegarder le nouvel état
+            this.settings.correctorEnabled = this.isEnabled;
+            chrome.storage.sync.set({ correctorEnabled: this.isEnabled });
+
+            if (!this.isEnabled) {
                 this.hideAllPopups();
             }
-        });
-
-        // Écouter les changements de focus
-        document.addEventListener('focusin', (e) => {
-            if (this.isTextInput(e.target)) {
-                this.currentElement = e.target;
-            }
-        });
-    }
-
-    isTextInput(element) {
-        const textInputTypes = ['text', 'email', 'password', 'search', 'url'];
-        return (
-            element.tagName === 'TEXTAREA' ||
-            (element.tagName === 'INPUT' && textInputTypes.includes(element.type)) ||
-            element.contentEditable === 'true'
-        );
-    }
-
-    handleInput(event) {
-        clearTimeout(this.debounceTimer);
-
-        this.debounceTimer = setTimeout(() => {
-            this.analyzeText(event.target);
-        }, 500); // Attendre 500ms après la dernière saisie
-    }
-
-    async analyzeText(element) {
-        const text = this.getElementText(element);
-
-        if (text.length < 10) return; // Ignorer les textes trop courts
-
-        try {
-            const corrections = await this.getCorrections(text);
-            if (corrections && corrections.length > 0) {
-                this.highlightErrors(element, corrections);
-            }
-        } catch (error) {
-            console.error('Erreur lors de la correction:', error);
         }
-    }
 
-    async getCorrections(text) {
-        // Utilisation de l'API Hugging Face pour la correction
-        const response = await fetch(HF_API_URL, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${HF_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                inputs: `Corrige l'orthographe et la grammaire: "${text}"`,
-                parameters: {
-                    max_length: text.length + 50,
-                    temperature: 0.3,
-                    do_sample: true
+        createCorrectionToggle() {
+            // Éviter la création multiple
+            if (document.getElementById('correction-toggle')) return;
+
+            const toggle = document.createElement('div');
+            toggle.id = 'correction-toggle';
+            toggle.innerHTML = `
+                <div class="toggle-content">
+                    <span>Correcteur IA</span>
+                    <button id="toggle-correction">${this.isEnabled ? 'ON' : 'OFF'}</button>
+                </div>
+            `;
+
+            toggle.style.cssText = `
+                position: fixed !important;
+                bottom: 20px !important;
+                right: 20px !important;
+                background: ${this.isEnabled ? '#4CAF50' : '#f44336'} !important;
+                color: white !important;
+                padding: 10px 15px !important;
+                border-radius: 25px !important;
+                z-index: 10001 !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+                font-size: 12px !important;
+                cursor: pointer !important;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important;
+                transition: all 0.3s ease !important;
+                user-select: none !important;
+            `;
+
+            document.body.appendChild(toggle);
+
+            toggle.addEventListener('click', () => {
+                this.toggleCorrector();
+            });
+        }
+
+        updateStats(action) {
+            chrome.storage.local.get(['stats'], (result) => {
+                const stats = result.stats || {
+                    correctionsCount: 0,
+                    acceptedCount: 0,
+                    ignoredCount: 0
+                };
+
+                if (action === 'accepted') {
+                    stats.acceptedCount++;
+                } else if (action === 'ignored') {
+                    stats.ignoredCount++;
                 }
-            })
-        });
+                stats.correctionsCount++;
 
-        if (!response.ok) {
-            throw new Error(`Erreur API: ${response.status}`);
+                chrome.storage.local.set({ stats });
+            });
         }
-
-        const result = await response.json();
-        return this.parseCorrections(text, result);
     }
 
-    parseCorrections(originalText, apiResult) {
-        // Analyse simple des corrections (à améliorer selon le modèle utilisé)
-        if (!apiResult || !apiResult[0] || !apiResult[0].generated_text) {
-            return [];
-        }
-
-        const correctedText = apiResult[0].generated_text.replace(/^Corrige l'orthographe et la grammaire: ".*?" ?/i, '').trim();
-
-        // Comparaison basique mot par mot
-        const originalWords = originalText.split(/\s+/);
-        const correctedWords = correctedText.split(/\s+/);
-        const corrections = [];
-
-        for (let i = 0; i < Math.min(originalWords.length, correctedWords.length); i++) {
-            if (originalWords[i] !== correctedWords[i]) {
-                corrections.push({
-                    word: originalWords[i],
-                    suggestion: correctedWords[i],
-                    position: this.findWordPosition(originalText, originalWords[i], i)
-                });
-            }
-        }
-
-        return corrections;
-    }
-
-    findWordPosition(text, word, wordIndex) {
-        const words = text.split(/\s+/);
-        let position = 0;
-
-        for (let i = 0; i < wordIndex; i++) {
-            position = text.indexOf(words[i], position) + words[i].length;
-        }
-
-        return {
-            start: text.indexOf(word, position),
-            end: text.indexOf(word, position) + word.length
-        };
-    }
-
-    highlightErrors(element, corrections) {
-        // Créer des marqueurs visuels pour les erreurs
-        corrections.forEach(correction => {
-            this.createErrorMarker(element, correction);
+    // Initialiser le correcteur seulement si pas déjà fait
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            new CorrecteurIA();
         });
-    }
-
-    createErrorMarker(element, correction) {
-        const rect = element.getBoundingClientRect();
-        const marker = document.createElement('div');
-        marker.className = 'correction-marker';
-        marker.innerHTML = `
-        <div class="error-underline"></div>
-        <div class="correction-popup" style="display: none;">
-        <div class="correction-suggestion">
-        <strong>Suggestion:</strong> ${correction.suggestion}
-        </div>
-        <div class="correction-actions">
-        <button class="accept-correction" data-original="${correction.word}" data-suggestion="${correction.suggestion}">
-        Accepter
-        </button>
-        <button class="ignore-correction">
-        Ignorer
-        </button>
-        </div>
-        </div>
-        `;
-
-        // Positionner le marqueur
-        marker.style.position = 'absolute';
-        marker.style.left = `${rect.left + correction.position.start * 8}px`; // Approximation
-        marker.style.top = `${rect.top + rect.height}px`;
-        marker.style.zIndex = '10000';
-
-        document.body.appendChild(marker);
-
-        // Ajouter les événements
-        marker.querySelector('.error-underline').addEventListener('click', () => {
-            this.showCorrectionPopup(marker);
-        });
-
-        marker.querySelector('.accept-correction').addEventListener('click', (e) => {
-            this.applyCorrectionText(element, e.target.dataset.original, e.target.dataset.suggestion);
-            marker.remove();
-        });
-
-        marker.querySelector('.ignore-correction').addEventListener('click', () => {
-            marker.remove();
-        });
-    }
-
-    showCorrectionPopup(marker) {
-        this.hideAllPopups();
-        const popup = marker.querySelector('.correction-popup');
-        popup.style.display = 'block';
-    }
-
-    hideAllPopups() {
-        document.querySelectorAll('.correction-popup').forEach(popup => {
-            popup.style.display = 'none';
-        });
-    }
-
-    applyCorrectionText(element, original, suggestion) {
-        const text = this.getElementText(element);
-        const correctedText = text.replace(new RegExp(original, 'g'), suggestion);
-        this.setElementText(element, correctedText);
-    }
-
-    getElementText(element) {
-        if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
-            return element.value;
-        } else if (element.contentEditable === 'true') {
-            return element.textContent;
-        }
-        return '';
-    }
-
-    setElementText(element, text) {
-        if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
-            element.value = text;
-        } else if (element.contentEditable === 'true') {
-            element.textContent = text;
-        }
-
-        // Déclencher l'événement input pour les frameworks JS
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-
-    createCorrectionPopup() {
-        // Interface pour activer/désactiver le correcteur
-        const toggle = document.createElement('div');
-        toggle.id = 'correction-toggle';
-        toggle.innerHTML = `
-        <div class="toggle-content">
-        <span>Correcteur IA</span>
-        <button id="toggle-correction">${this.isEnabled ? 'ON' : 'OFF'}</button>
-        </div>
-        `;
-        toggle.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: #4CAF50;
-        color: white;
-        padding: 10px;
-        border-radius: 5px;
-        z-index: 10001;
-        font-family: Arial, sans-serif;
-        font-size: 12px;
-        cursor: pointer;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        `;
-
-        document.body.appendChild(toggle);
-
-        toggle.addEventListener('click', () => {
-            this.isEnabled = !this.isEnabled;
-            document.getElementById('toggle-correction').textContent = this.isEnabled ? 'ON' : 'OFF';
-            toggle.style.background = this.isEnabled ? '#4CAF50' : '#f44336';
-            this.saveSettings();
-        });
-    }
-
-    loadSettings() {
-        chrome.storage.sync.get(['correctorEnabled'], (result) => {
-            this.isEnabled = result.correctorEnabled !== false;
-        });
-    }
-
-    saveSettings() {
-        chrome.storage.sync.set({ correctorEnabled: this.isEnabled });
-    }
-}
-
-// Initialiser le correcteur
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
+    } else {
         new CorrecteurIA();
-    });
-} else {
-    new CorrecteurIA();
+    }
 }
